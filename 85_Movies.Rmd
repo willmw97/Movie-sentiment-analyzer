@@ -1,0 +1,468 @@
+---
+title: "Movie Script Analysis"
+author: "Mikolaj Wieczorek"
+date: "12/12/2019"
+output: 
+ md_document:
+    variant: markdown_github
+---
+
+Libraries used: tm, proxy, fpc, wordcloud, stringi, devtools, ggplot2, FactoMineR, factoextra, FactoInvestigate, MASS, lattice, mixOmics, cluster, dplyr, tidyr, data.table, arules, arulesViz, gplots, RColorBrewer.
+
+```{r include=FALSE}
+library(tm)
+library(proxy)
+library(fpc)   
+library(wordcloud)
+library(stringi)
+library(devtools)
+library(ggplot2)
+library(FactoMineR)
+library(factoextra)
+library(FactoInvestigate)
+library(MASS)
+library(lattice)
+library(mixOmics)
+library(cluster)
+library(dplyr)
+library(tidyr)
+library(data.table)
+library(arules)
+library(arulesViz)
+library(gplots)
+library(RColorBrewer)
+
+```
+
+# Motivation
+We wanted to look at movie scripts and see if there were any common traits associated with movies. Because of this we decided to do text mining on Movie Scripts and analyze text features. 
+
+# Executive summary
+
+By looking at movie scripts we have found a number of interesting conclusions based on what we found. We found that one of the largest emotions that are found in movies is trust. We also found that common genre movies do tend to cluster around each other like for example kids’ movies. We expected there would be more clustering around genre but, it wasn’t as significant as we expected. 
+
+# Methods:
+
+- Clustering (hclust, agnes, and kmeans)
+- Association Rules
+- Sentiment Analysis 
+- Frequency Plots
+
+
+## Upload Movies
+```{r}
+path_85 = "~/OneDrive - MNSCU/myGithub/Unsupervised_Learning/Movie-Script-Unsupervised-Learning-Methods-Analyses/85_movies"
+dir_85 = DirSource(paste(path_85, sep=""), encoding = "UTF-8")
+corpus_85 = Corpus(dir_85)
+head(summary(corpus_85))
+tail(summary(corpus_85))
+```
+
+```{r}
+ndocs <- length(corpus_85)
+# ignore extremely rare words i.e. terms that appear in less then 1% of the documents
+minTermFreq <- ndocs * 0.15
+# ignore overly common words i.e. terms that appear in more than 50% of the documents
+maxTermFreq <- ndocs * .5
+dtm_85 = DocumentTermMatrix(corpus_85,
+                         control = list(
+                           stopwords = T, 
+                           wordLengths=c(4, 15),
+                           removePunctuation = T,
+                           removeNumbers = T,
+                           #stemming = T,
+                           #removeWords("bateman"),
+                           bounds = list(global = c(minTermFreq, maxTermFreq))
+                         ))
+```
+
+
+```{r}
+#dtm <- dtm[, names(head(sort(colSums(as.matrix(dtm))), 400))]
+#dtm <- dtm[, names(sort(colSums(as.matrix(dtm))))]
+dtm.matrix_85 = as.matrix(dtm_85)
+dim(dtm.matrix_85)
+```
+
+## Clustering
+
+```{r}
+##### Preparing for clustering ######
+```
+
+
+```{r}
+#Clustering words
+tdm_85 = t(dtm_85)
+#Removing sparse terms
+tdm_no_sparse_85 = removeSparseTerms(tdm_85, sparse = .99)
+#Cluster
+tdm.mat_85  <- as.matrix(tdm_no_sparse_85)
+#First 20 most frequent words
+word.freq = sort(rowSums(tdm.mat_85), decreasing = T)
+barplot(word.freq[1:20], cex.names = .8)
+#Next 20 most frequent words
+barplot(word.freq[21:40], cex.names = .8)
+#Next 20 most frequent words
+barplot(word.freq[41:60], cex.names = .8)
+```
+
+The most common words appear to be:
+<b>fuckin, ship, captain, train, elevator, dances, bridge, agent, hotel, guards,</b> <br>
+summer, horse, river, truck, court, fires, king, kicking, sister, york, <br>
+progress, dawn, prison, trees, cabin, lieutenant, bird <br>
+
+We are not considering names or words that relate to directions for actors in the movie script; there are still some left out even after cleaning all the 85 scripts in python to generate "spoken words"
+
+### Clustering Words
+```{r}
+#Clustering words: words as terms and movies as documents: T-D
+clust.tdm.matrix_85 = as.matrix(tdm_85)
+clust.tdm.matrix_85[clust.tdm.matrix_85>1] = 1
+```
+
+```{r}
+#Using Agnes
+tdm.agnes.ward_85 = agnes(clust.tdm.matrix_85, metric = "Jaccard", method = "ward")
+```
+
+
+```{r}
+#Plotting Agnes cluster
+plot(tdm.agnes.ward_85,cex = 0.7, which.plots = 2)
+```
+
+
+```{r}
+#Using hclust
+tdm.movie.dist_85 = dist(clust.tdm.matrix_85, method = "Jaccard")
+```
+
+
+```{r}
+#Plotting hlust
+tdm.movie.clust_85 = hclust(tdm.movie.dist_85, method = "ward.D")
+plot(tdm.movie.clust_85, cex = .7)
+```
+
+
+```{r}
+words.groups_85 = cutree(tdm.movie.clust_85, k=25)
+table(words.groups_85)
+```
+
+#### K-means
+```{r}
+#Optimal number of clusters
+fviz_nbclust(clust.tdm.matrix_85,kmeans,k.max=15,method="silhouette")
+```
+
+```{r}
+fviz_nbclust(tdm.mat_85,kmeans,k.max=15,method="wss")  
+```
+
+
+```{r}
+#fviz_nbclust(clust.tdm.matrix_85,kmeans,k.max=15,method = "gap_stat")
+```
+
+```{r}
+shooby_85_words = kmeans(clust.tdm.matrix_85,3)
+table(shooby_85_words$cluster)
+```
+
+```{r}
+
+fviz_cluster(shooby_85_words,data = clust.tdm.matrix_85)
+```
+
+
+### Clustering Movies
+```{r}
+#Clustering movies: movies as documents and words as terms: D-T
+clust.dtm.matrix_85 = dtm.matrix_85
+clust.dtm.matrix_85[clust.dtm.matrix_85>1] = 1
+
+#Clustering words: words as terms and movies as documents: T-D
+clust.tdm.matrix_85 = as.matrix(tdm_85)
+clust.tdm.matrix_85[clust.tdm.matrix_85>1] = 1
+```
+
+```{r}
+#Using Agnes
+dtm.agnes.ward_85 = agnes(clust.dtm.matrix_85, metric = "Jaccard", method = "ward")
+```
+
+
+```{r}
+#Plotting Agnes cluster
+plot(dtm.agnes.ward_85,cex = 0.7, which.plots = 2)
+```
+
+```{r}
+#Using hclust
+dtm.movie.dist_85 = dist(clust.dtm.matrix_85, method = "Jaccard")
+```
+
+
+```{r}
+#Plotting hlust
+dtm.movie.clust_85 = hclust(dtm.movie.dist_85, method = "ward.D")
+plot(dtm.movie.clust_85, cex = .7)
+```
+
+```{r}
+#Plotting hclust with movie genre labels
+read.csv("emotions_final.csv") -> label
+plot(dtm.movie.clust_85, cex = .7, labels = label$Genre)
+```
+
+
+```{r}
+movie.groups_85 = cutree(dtm.movie.clust_85, k=3)
+table(movie.groups_85, label$Genre)
+```
+
+#### K-means
+```{r}
+#Optimal number of clusters
+fviz_nbclust(clust.dtm.matrix_85,kmeans,k.max=15,method="silhouette")
+```
+
+```{r}
+fviz_nbclust(clust.dtm.matrix_85,kmeans,k.max=15,method="wss")  
+```
+
+```{r}
+fviz_nbclust(clust.dtm.matrix_85,kmeans,k.max=15,method = "gap_stat")
+```
+
+```{r}
+shooby_85 = kmeans(clust.dtm.matrix_85,3)
+table(shooby_85$cluster, label$Genre)
+```
+
+```{r}
+
+fviz_cluster(shooby_85,data = clust.dtm.matrix_85)
+```
+
+```{r eval=FALSE, include=FALSE}
+#Heatmap
+heatmap.2(clust.tdm.matrix_85, dendrogram = "column", trace = "none", col = c("black", "white"))
+```
+
+### Labels
+```{r eval=FALSE, include=FALSE}
+#Genre, Movie, movie.title
+Genre.df = read.csv("emotionsv2.csv"
+)
+Genre = Genre.df$Genre
+```
+
+
+### Association Rules: Movies as transactions and words as products purchased
+```{r}
+#Our clust.dtm.matrix
+movie.trans_85 = as(clust.dtm.matrix_85, "transactions")
+#With support .3 and confidence .8 -> 39 rules found
+movie.rules_85 = apriori(movie.trans_85, parameter = list(supp = .2, conf =.9))
+```
+
+About 38,000 rules generates
+```{r}
+plot(movie.rules_85, "grouped")
+```
+```{r}
+plot(movie.rules_85, "scatter", jitter = 0, interactive = F)
+```
+As seen above in the scatter plot, it'd be best to take rules that are the redest (highest lift value) and are in the top right corner (highest confidence and support). Let's expore some through ruleExplorer() to determine about 10 best quality rules
+
+```{r eval=FALSE, include=FALSE}
+ruleExplorer(movie.rules_85)
+```
+
+```{r eval=FALSE, include=FALSE}
+itemFrequencyPlot(movie.trans_85, topN = 100, cex = 0.7)
+```
+```{r eval=FALSE, include=FALSE}
+ruleExplorer(movie.trans_85)
+```
+
+
+
+Now, we are going to create subsets on rules with RHS being the most frequent word used
+
+3 rules for 10 most frequent words: <br>
+<b>fuckin, ship, captain, train, elevator, dances, bridge, agent, hotel, guards,</b> <br>
+```{r include=FALSE}
+movie.rule_1 = apriori(movie.trans_85, parameter = list(supp = .11, conf =.8, maxlen = 4), appearance = list(default="lhs", rhs="fuckin"))
+movie.rule_2 = apriori(movie.trans_85, parameter = list(supp = .14, conf =.8, maxlen = 3), appearance = list(default="lhs", rhs="ship"))
+movie.rule_3 = apriori(movie.trans_85, parameter = list(supp = .11, conf =.9, maxlen = 3), appearance = list(default="lhs", rhs="captain"))
+movie.rule_4 = apriori(movie.trans_85, parameter = list(supp = .15, conf =.9, maxlen = 3), appearance = list(default="lhs", rhs="train"))
+movie.rule_5 = apriori(movie.trans_85, parameter = list(supp = .18, conf =.85, maxlen = 3), appearance = list(default="lhs", rhs="elevator"))
+movie.rule_6 = apriori(movie.trans_85, parameter = list(supp = .09, conf =.8, maxlen = 5), appearance = list(default="lhs", rhs="dances"))
+movie.rule_7 = apriori(movie.trans_85, parameter = list(supp = .17, conf =.9, maxlen = 5), appearance = list(default="lhs", rhs="bridge"))
+movie.rule_8 = apriori(movie.trans_85, parameter = list(supp = .15, conf =.8, maxlen = 5), appearance = list(default="lhs", rhs="agent"))
+movie.rule_9 = apriori(movie.trans_85, parameter = list(supp = .21, conf =.85, maxlen = 5), appearance = list(default="lhs", rhs="hotel"))
+movie.rule_10 = apriori(movie.trans_85, parameter = list(supp = .21, conf =.85, maxlen = 5), appearance = list(default="lhs", rhs="guards"))
+movie.rule_11= apriori(movie.trans_85, parameter = list(supp = .17, conf =.9, maxlen = 5), appearance = list(default="lhs", rhs="tunnel"))
+```
+
+
+## Make plots interactive and take screenshots
+```{r}
+movie.rule_1 = sort(movie.rule_1, by = "lift")
+inspect(movie.rule_1)
+```
+
+```{r}
+write(movie.rule_1,
+      file = "association_rules.csv",
+      sep = ",",
+      quote = TRUE,
+      row.names = FALSE)
+```
+
+
+```{r}
+plot(movie.rule_1, "graph", interactive = F)
+```
+
+```{r}
+movie.rule_2 = sort(movie.rule_2, by = "lift")
+inspect(movie.rule_2)
+```
+```{r}
+plot(movie.rule_2, "graph", interactive = F)
+```
+
+```{r}
+movie.rule_3 = sort(movie.rule_3, by = "lift")
+inspect(movie.rule_3)
+```
+```{r}
+plot(movie.rule_3, "graph", interactive = F)
+```
+
+```{r}
+movie.rule_4 = sort(movie.rule_4, by = "lift")
+inspect(movie.rule_4)
+```
+```{r}
+plot(movie.rule_4, "graph", interactive = F)
+```
+
+```{r}
+movie.rule_5 = sort(movie.rule_5, by = "lift")
+inspect(movie.rule_5)
+```
+```{r}
+plot(movie.rule_5, "graph", interactive = F)
+```
+
+```{r}
+movie.rule_6 = sort(movie.rule_6, by = "lift")
+inspect(movie.rule_6)
+```
+```{r}
+plot(movie.rule_6, "graph", interactive = T)
+```
+
+```{r}
+movie.rule_7 = sort(movie.rule_7, by = "lift")
+inspect(movie.rule_7)
+```
+```{r}
+plot(movie.rule_7, "graph", interactive = F)
+```
+
+```{r}
+movie.rule_8 = sort(movie.rule_8, by = "lift")
+inspect(movie.rule_8)
+```
+```{r}
+plot(movie.rule_8, "graph", interactive = F)
+```
+
+```{r}
+movie.rule_9 = sort(movie.rule_9, by = "lift")
+inspect(movie.rule_9)
+```
+```{r}
+plot(movie.rule_9, "graph", interactive = F)
+```
+
+```{r}
+movie.rule_10 = sort(movie.rule_10, by = "lift")
+inspect(movie.rule_10)
+```
+```{r}
+plot(movie.rule_10, "graph", interactive = F)
+```
+
+```{r}
+movie.rule_11 = sort(movie.rule_11, by = "lift")
+inspect(movie.rule_11)
+```
+```{r}
+plot(movie.rule_11, "graph", interactive = F)
+```
+
+
+#Work on making rule subsets based on the most frequent word for example.
+Relate to word.frequency bar graphs
+
+```{r}
+
+```
+
+#Sentiment
+
+## Word cloud for all the movies
+```{r}
+mystopwords = c(stopwords("en"), "jack", "continued", "john")
+```
+
+```{r}
+check = Corpus(dir_85)
+check = tm_map(check, removeWords, mystopwords)
+```
+
+
+```{r}
+ndocs <- length(check)
+# ignore extremely rare words i.e. terms that appear in less then 1% of the documents
+minTermFreq <- ndocs * 0.15
+# ignore overly common words i.e. terms that appear in more than 50% of the documents
+maxTermFreq <- ndocs * .5
+checkDTM = DocumentTermMatrix(check,
+                         control = list(
+                           wordLengths=c(4, 15),
+                           removePunctuation = T,
+                           removeNumbers = T,
+                           #stemming = T,
+                           #removeWords("bateman"),
+                           bounds = list(global = c(minTermFreq, maxTermFreq))
+                         ))
+checkTDM = t(checkDTM)
+check.mat = as.matrix(checkTDM)
+```
+
+```{r}
+word.freq_check = sort(rowSums(check.mat), decreasing = T)
+barplot(word.freq_check[1:20], cex.names = .8, col = "light blue")
+#Next 20 most frequent words
+barplot(word.freq_check[21:40], cex.names = .8, col = "light blue")
+#Next 20 most frequent words
+barplot(word.freq_check[41:60], cex.names = .8, col = "light blue")
+```
+
+```{r}
+dim(check.mat)
+```
+
+```{r eval=FALSE, include=FALSE}
+wordcloud(words = names(word.freq_check[10:3200]), freq = word.freq_check, min.freq = 100, col = rainbow(1000), max.words = 50)
+```
+
